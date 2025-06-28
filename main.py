@@ -106,25 +106,25 @@ async def search_products(request_body: SearchRequest):
     # This query assumes your PostgreSQL instance has the 'embedding' function
     # provided by Cloud SQL's AI features (e.g., pg_embedding extension).
     sql_query = """
-    SELECT id
+    SELECT external_id
     FROM (
-      SELECT DISTINCT ON (id) *
+      SELECT DISTINCT ON (external_id) *
       FROM (
         (
-          SELECT 'text_match' AS source, id, name
+          SELECT 'text_match' AS source, external_id
           FROM products
           WHERE name ILIKE :query_text_pattern
           LIMIT 10
         )
         UNION ALL
         (
-          SELECT 'embedding_match' AS source, id, name
+          SELECT 'embedding_match' AS source, external_id
           FROM products
           ORDER BY abstract_embeddings <=> embedding('text-embedding-005', :query_text_embedding)::vector
           LIMIT 10
         )
       ) combined
-      ORDER BY id, source DESC -- IMPORTANT: This prioritizes 'text_match' for deduplication
+      ORDER BY external_id, source DESC -- IMPORTANT: This prioritizes 'text_match' for deduplication
     ) deduped
     ORDER BY source DESC; -- This orders the final output by source (text_match first)
     """
@@ -142,7 +142,7 @@ async def search_products(request_body: SearchRequest):
                     "query_text_embedding": query_text # This text is passed to the embedding() function in SQL
                 }
             )
-            ids = [row.id for row in result.fetchall()] # Access by column name
+            ids = [row.external_id for row in result.fetchall()] # Access by column name
         return SearchResponse(ids=ids) # Return the Pydantic model
     except Exception as e:
         print(f"Database query error: {e}")
