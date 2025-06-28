@@ -1,5 +1,3 @@
-# main.py
-
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -16,28 +14,30 @@ app = FastAPI(
 )
 
 # --- Configuration (from Environment Variables) ---
-# IMPORTANT: These must be the NAMES of the environment variables
+# IMPORTANT: These are the STRING NAMES of the environment variables
 # that you will set in your Cloud Run service configuration.
-ENV_CLOUD_SQL_CONNECTION_NAME = "meilsearchproduct2106:europe-central2:testdata1"
-ENV_DB_USER = "postgres"
-ENV_DB_PASS = "testDatap"
-ENV_DB_NAME = "test_data"
-ENV_USE_PRIVATE_IP = "10.30.145.3" # Set this to "true" or "false"
+ENV_CLOUD_SQL_CONNECTION_NAME_KEY = "CLOUD_SQL_CONNECTION_NAME" # This will be the env var name
+ENV_DB_USER_KEY = "DB_USER"
+ENV_DB_PASS_KEY = "DB_PASS"
+ENV_DB_NAME_KEY = "DB_NAME"
+ENV_USE_PRIVATE_IP_KEY = "USE_PRIVATE_IP" # This will be the env var name
 
-# Retrieve values using the defined environment variable names
-CLOUD_SQL_CONNECTION_NAME = os.environ.get(ENV_CLOUD_SQL_CONNECTION_NAME)
-DB_USER = os.environ.get(ENV_DB_USER)
-DB_PASS = os.environ.get(ENV_DB_PASS)
-DB_NAME = os.environ.get(ENV_DB_NAME)
-USE_PRIVATE_IP = os.environ.get(ENV_USE_PRIVATE_IP, "false").lower() == "true" # Default to public if not set
+# Retrieve values using the defined environment variable NAMES (keys)
+CLOUD_SQL_CONNECTION_NAME = os.environ.get(ENV_CLOUD_SQL_CONNECTION_NAME_KEY)
+DB_USER = os.environ.get(ENV_DB_USER_KEY)
+DB_PASS = os.environ.get(ENV_DB_PASS_KEY)
+DB_NAME = os.environ.get(ENV_DB_NAME_KEY)
+# Default to "false" if ENV_USE_PRIVATE_IP_KEY is not set
+USE_PRIVATE_IP = os.environ.get(ENV_USE_PRIVATE_IP_KEY, "false").lower() == "true"
 
 # --- Validate essential environment variables ---
 if not all([CLOUD_SQL_CONNECTION_NAME, DB_USER, DB_PASS, DB_NAME]):
     missing_vars = []
-    if CLOUD_SQL_CONNECTION_NAME is None: missing_vars.append(ENV_CLOUD_SQL_CONNECTION_NAME)
-    if DB_USER is None: missing_vars.append(ENV_DB_USER)
-    if DB_PASS is None: missing_vars.append(ENV_DB_PASS)
-    if DB_NAME is None: missing_vars.append(ENV_DB_NAME)
+    if CLOUD_SQL_CONNECTION_NAME is None: missing_vars.append(ENV_CLOUD_SQL_CONNECTION_NAME_KEY)
+    if DB_USER is None: missing_vars.append(ENV_DB_USER_KEY)
+    if DB_PASS is None: missing_vars.append(ENV_DB_PASS_KEY)
+    if DB_NAME is None: missing_vars.append(ENV_DB_NAME_KEY)
+    # The error message will now correctly show the NAMES of the missing variables
     raise ValueError(f"Missing one or more essential environment variables for database connection: {', '.join(missing_vars)}")
 
 
@@ -49,7 +49,7 @@ def getconn() -> pg8000.dbapi.Connection:
     """Function to establish a new database connection."""
     try:
         conn: pg8000.dbapi.Connection = connector.connect(
-            CLOUD_SQL_CONNECTION_NAME,
+            CLOUD_SQL_CONNECTION_NAME, # This now holds the actual connection name value
             "pg8000",
             user=DB_USER,
             password=DB_PASS,
