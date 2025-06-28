@@ -1,8 +1,7 @@
-# requirements.txt
 fastapi
 uvicorn
 pydantic
-google-cloud-sql-connector  # <-- REMOVE [pg8000] here
+cloud-sql-python-connector
 SQLAlchemy
 gunicorn
-pg8000                      # <-- ADD pg8000 as a separate line
+pg8000

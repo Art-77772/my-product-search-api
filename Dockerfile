@@ -1,35 +1,20 @@
-# Dockerfile
-FROM python:3.10-slim-buster
+# Use the official Python image
+FROM python:3.9-slim-buster
 
+# Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies needed for building many Python packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create a non-root user
-RUN adduser --system --group appuser
-
+# Copy the requirements file and install dependencies
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Upgrade pip, setuptools, and wheel
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# Install your application dependencies
-RUN pip install --no-cache-dir --verbose -r requirements.txt # This will now read the modified requirements.txt
-
-# Copy the rest of the application code into the container
+# Copy the application code
 COPY . .
 
-# Change ownership of the /app directory to the non-root user
-RUN chown -R appuser:appuser /app
-
-# Switch to the non-root user
-USER appuser
-
-ENV PORT 8080
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "$PORT", "--workers", "1", "--timeout", "0"]
+# Command to run the application with Gunicorn and Uvicorn workers
+# Gunicorn manages workers, Uvicorn serves the ASGI app
+CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8080"]
+# -w 4: 4 Uvicorn workers (adjust based on CPU/memory)
+# -k uvicorn.workers.UvicornWorker: use Uvicorn for ASGI apps
+# main:app: refers to the 'app' object in 'main.py'
+# --bind 0.0.0.0:8080: listens on the port Cloud Run expects
