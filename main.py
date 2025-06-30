@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, BackgroundTasks, status
+from fastapi import FastAPI, HTTPException, status # Removed BackgroundTasks
 from pydantic import BaseModel
 from google.cloud.sql.connector import Connector, IPTypes
 import pg8000.dbapi
@@ -68,18 +68,21 @@ class SearchRequest(BaseModel):
 class SearchResponse(BaseModel):
     ids: list[str]
 
+# Re-adding this Pydantic model for the embedding endpoint's response
 class GenerateEmbeddingsResponse(BaseModel):
     message: str
+    total_products_embedded: int # Added to provide more info in synchronous response
 
-# --- Background Task for Embedding Generation ---
-
-def generate_embeddings_sync(BATCH_SIZE: int = 10):
+# --- Synchronous Function for Embedding Generation ---
+# This function will now be called directly by the endpoint,
+# making the endpoint block until this completes.
+def generate_embeddings_sync(BATCH_SIZE: int = 10) -> int: # Added return type for total count
     """
     Synchronous function to perform the embedding generation in batches.
-    This runs in a background thread managed by FastAPI.
+    This will block the calling endpoint until all batches are processed.
     """
     total_products_embedded = 0
-    print("Starting background embedding generation...")
+    print("Starting synchronous embedding generation...")
 
     while True:
         try:
@@ -110,24 +113,18 @@ def generate_embeddings_sync(BATCH_SIZE: int = 10):
                 total_products_embedded += num_updated
                 print(f"Embedded {num_updated} products in this batch. Total embedded: {total_products_embedded}")
 
-                # No explicit commit needed here with `with db_pool.connect() as connection:`
-                # as SQLAlchemy handles transactions for simple statements automatically,
-                # committing on success or rolling back on error within the `with` block.
-                # If you need multi-statement transactions, you'd use `connection.begin()`
-
         except Exception as e:
             print(f"Error during embedding generation batch processing: {e}")
             # Log the specific error for debugging
             # Consider more robust error handling / retry logic here in a real app
-            break # Stop on error for now
-
-        # Optional: Add a small delay between batches to avoid overwhelming resources
-        # This is a synchronous sleep, it will block this background thread.
-        # time.sleep(0.5) # Import time if using this. For now, rely on API call latency.
+            raise # Re-raise the exception to propagate it to the calling endpoint
+    
+    print(f"Synchronous embedding generation finished. Total embedded: {total_products_embedded}")
+    return total_products_embedded # Return the total count
 
 # --- FastAPI Routes ---
 
-@app.get("/healthok", status_code=200)
+@app.get("/health", status_code=200) # Changed to /health as discussed
 async def health_check():
     """Simple health check endpoint that also pings the database."""
     try:
@@ -186,23 +183,20 @@ async def search_products(request_body: SearchRequest):
         print(f"Database query error in search_products: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve IDs: {str(e)}")
 
-@app.post("/products/generate-embeddings", response_model=GenerateEmbeddingsResponse, status_code=status.HTTP_202_ACCEPTED)
-async def trigger_embedding_generation(
-    background_tasks: BackgroundTasks
-):
+@app.post("/products/generate-embeddings", response_model=GenerateEmbeddingsResponse, status_code=status.HTTP_200_OK) # Changed to HTTP_200_OK
+def trigger_embedding_generation(): # No longer async, no BackgroundTasks param
     """
-    Triggers the generation of embeddings for product names in the background.
-    This endpoint returns immediately with a 202 Accepted status.
+    Triggers the generation of embeddings for product names in the foreground.
+    This endpoint will block until the generation is complete.
     """
-    # The batch size for the SQL update
     BATCH_SIZE = 10 # Your requested limit
 
-    # Add the synchronous function to FastAPI's background tasks
-    # FastAPI will run this function in a separate thread,
-    # preventing the main event loop from blocking.
-    background_tasks.add_task(generate_embeddings_sync, BATCH_SIZE)
-
-    return {"message": f"Embedding generation started in the background with batch size {BATCH_SIZE}. Check service logs for progress."}
+    try:
+        total_embedded = generate_embeddings_sync(BATCH_SIZE) # Directly call the synchronous function
+        return {"message": f"Embedding generation completed. Total products embedded: {total_embedded}", "total_products_embedded": total_embedded}
+    except Exception as e:
+        print(f"Error triggering embedding generation: {e}")
+        raise HTTPException(status_code=500, detail=f"Embedding generation failed: {str(e)}")
 
 
 # This block is for local development only.
