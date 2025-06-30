@@ -73,7 +73,7 @@ class GenerateEmbeddingsResponse(BaseModel):
 
 # --- Background Task for Embedding Generation ---
 
-def generate_embeddings_sync(batch_size: int = 1600):
+def generate_embeddings_sync(batch_size: int = 160):
     """
     Synchronous function to perform the embedding generation in batches.
     This runs in a background thread managed by FastAPI.
@@ -155,14 +155,14 @@ async def search_products(request_body: SearchRequest):
           SELECT 'text_match' AS source, external_id
           FROM products
           WHERE name ILIKE :query_text_pattern
-          LIMIT 10
+          LIMIT 100
         )
         UNION ALL
         (
           SELECT 'embedding_match' AS source, external_id
           FROM products
           ORDER BY abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
-          LIMIT 10
+          LIMIT 100
         )
       ) combined
       ORDER BY external_id, source DESC -- IMPORTANT: This prioritizes 'text_match' for deduplication
