@@ -73,7 +73,7 @@ class GenerateEmbeddingsResponse(BaseModel):
 
 # --- Background Task for Embedding Generation ---
 
-def generate_embeddings_sync(BATCH_SIZE: int = 160):
+def generate_embeddings_sync(BATCH_SIZE: int = 10):
     """
     Synchronous function to perform the embedding generation in batches.
     This runs in a background thread managed by FastAPI.
@@ -195,7 +195,7 @@ async def trigger_embedding_generation(
     This endpoint returns immediately with a 202 Accepted status.
     """
     # The batch size for the SQL update
-    BATCH_SIZE = 160 # Your requested limit
+    BATCH_SIZE = 10 # Your requested limit
 
     # Add the synchronous function to FastAPI's background tasks
     # FastAPI will run this function in a separate thread,
