@@ -76,7 +76,7 @@ class GenerateEmbeddingsResponse(BaseModel):
 # --- Synchronous Function for Embedding Generation ---
 # This function will now be called directly by the endpoint,
 # making the endpoint block until this completes.
-def generate_embeddings_sync(BATCH_SIZE: int = 10) -> int: # Added return type for total count
+def generate_embeddings_sync(BATCH_SIZE: int = 1) -> int: # Added return type for total count
     """
     Synchronous function to perform the embedding generation in batches.
     This will block the calling endpoint until all batches are processed.
@@ -189,7 +189,7 @@ def trigger_embedding_generation(): # No longer async, no BackgroundTasks param
     Triggers the generation of embeddings for product names in the foreground.
     This endpoint will block until the generation is complete.
     """
-    BATCH_SIZE = 10 # Your requested limit
+    BATCH_SIZE = 1 # Your requested limit
 
     try:
         total_embedded = generate_embeddings_sync(BATCH_SIZE) # Directly call the synchronous function
