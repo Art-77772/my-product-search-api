@@ -73,7 +73,7 @@ class GenerateEmbeddingsResponse(BaseModel):
 
 # --- Background Task for Embedding Generation ---
 
-def generate_embeddings_sync(batch_size: int = 160):
+def generate_embeddings_sync(BATCH_SIZE: int = 160):
     """
     Synchronous function to perform the embedding generation in batches.
     This runs in a background thread managed by FastAPI.
@@ -93,7 +93,7 @@ def generate_embeddings_sync(batch_size: int = 160):
                         FROM products
                         WHERE abstract_embeddings IS NULL
                         ORDER BY id ASC
-                        LIMIT {batch_size}
+                        LIMIT {BATCH_SIZE}
                     )
                     RETURNING id; -- Return IDs of updated rows to check progress
                 """)
@@ -127,7 +127,7 @@ def generate_embeddings_sync(batch_size: int = 160):
 
 # --- FastAPI Routes ---
 
-@app.get("/healthz", status_code=200)
+@app.get("/healthok", status_code=200)
 async def health_check():
     """Simple health check endpoint that also pings the database."""
     try:
@@ -195,12 +195,12 @@ async def trigger_embedding_generation(
     This endpoint returns immediately with a 202 Accepted status.
     """
     # The batch size for the SQL update
-    BATCH_SIZE = 1600 # Your requested limit
+    BATCH_SIZE = 160 # Your requested limit
 
     # Add the synchronous function to FastAPI's background tasks
     # FastAPI will run this function in a separate thread,
     # preventing the main event loop from blocking.
-    background_tasks.add_task(generate_embeddings_sync, batch_size)
+    background_tasks.add_task(generate_embeddings_sync, BATCH_SIZE)
 
     return {"message": f"Embedding generation started in the background with batch size {BATCH_SIZE}. Check service logs for progress."}
 
