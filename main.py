@@ -1,11 +1,12 @@
 import os
-from fastapi import FastAPI, HTTPException, BackgroundTasks, status
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel, Field
 from google.cloud.sql.connector import Connector, IPTypes
 import pg8000.dbapi
 import sqlalchemy
-from sqlalchemy.pool import NullPool # Recommended for serverless environments
-from sqlalchemy import text # Import text for raw SQL execution
+from sqlalchemy.pool import NullPool
+from sqlalchemy import text
+from typing import List, Optional, Dict
 
 # --- FastAPI App Initialization ---
 app = FastAPI(
@@ -62,30 +63,34 @@ db_pool = sqlalchemy.create_engine(
 )
 
 # --- Pydantic Models for Request/Response Validation ---
+class FilterItem(BaseModel):
+    field: str
+    values: List[str]
+
 class SearchRequest(BaseModel):
     query_text: str
+    filter_items: Optional[List[FilterItem]] = Field(None, description="Optional list of items to filter the search results.")
 
 class SearchResponse(BaseModel):
-    ids: list[str]
+    ids: List[str]
 
 class GenerateEmbeddingsResponse(BaseModel):
     message: str
+    total_products_embedded: int
 
-# --- Background Task for Embedding Generation ---
-
-def generate_embeddings_sync(batch_size: int = 160):
+# --- Synchronous Function for Embedding Generation ---
+def generate_embeddings_sync(BATCH_SIZE: int = 1) -> int:
     """
     Synchronous function to perform the embedding generation in batches.
-    This runs in a background thread managed by FastAPI.
+    This will block the calling endpoint until all batches are processed.
     """
     total_products_embedded = 0
-    print("Starting background embedding generation...")
+    print("Starting synchronous embedding generation...")
 
     while True:
         try:
             with db_pool.connect() as connection:
-                # The SQL statement to update products in batches
-                sql_query = text(f"""
+                sql_query = text("""
                     UPDATE products
                     SET abstract_embeddings = embedding('gemini-embedding-001', name)::vector
                     WHERE id IN (
@@ -93,46 +98,36 @@ def generate_embeddings_sync(batch_size: int = 160):
                         FROM products
                         WHERE abstract_embeddings IS NULL
                         ORDER BY id ASC
-                        LIMIT {batch_size}
+                        LIMIT :batch_size
                     )
-                    RETURNING id; -- Return IDs of updated rows to check progress
+                    RETURNING id;
                 """)
 
-                # Execute the update
-                result = connection.execute(sql_query)
-                updated_ids = result.scalars().all() # Get list of updated IDs
+                result = connection.execute(sql_query, {"batch_size": BATCH_SIZE})
+                updated_ids = result.scalars().all()
 
                 if not updated_ids:
                     print("Embedding generation complete: No more products to process.")
-                    break # Exit loop if no rows were updated
+                    break
 
                 num_updated = len(updated_ids)
                 total_products_embedded += num_updated
                 print(f"Embedded {num_updated} products in this batch. Total embedded: {total_products_embedded}")
 
-                # No explicit commit needed here with `with db_pool.connect() as connection:`
-                # as SQLAlchemy handles transactions for simple statements automatically,
-                # committing on success or rolling back on error within the `with` block.
-                # If you need multi-statement transactions, you'd use `connection.begin()`
-
         except Exception as e:
             print(f"Error during embedding generation batch processing: {e}")
-            # Log the specific error for debugging
-            # Consider more robust error handling / retry logic here in a real app
-            break # Stop on error for now
-
-        # Optional: Add a small delay between batches to avoid overwhelming resources
-        # This is a synchronous sleep, it will block this background thread.
-        # time.sleep(0.5) # Import time if using this. For now, rely on API call latency.
+            raise
+    
+    print(f"Synchronous embedding generation finished. Total embedded: {total_products_embedded}")
+    return total_products_embedded
 
 # --- FastAPI Routes ---
-
-@app.get("/healthz", status_code=200)
+@app.get("/health", status_code=200)
 async def health_check():
     """Simple health check endpoint that also pings the database."""
     try:
         with db_pool.connect() as connection:
-            connection.execute(sqlalchemy.text("SELECT 1")) # Simple query to check connectivity
+            connection.execute(sqlalchemy.text("SELECT 1"))
         return {"status": "ok", "db_connection": "successful"}
     except Exception as e:
         print(f"Health check failed due to database error: {e}")
@@ -141,80 +136,101 @@ async def health_check():
 @app.post("/search-products", response_model=SearchResponse, status_code=200)
 async def search_products(request_body: SearchRequest):
     """
-    Searches for product IDs based on the provided query text.
-    Combines text-based and embedding-based matches, prioritizing text matches.
+    Searches for product IDs based on the provided query text, with optional filtering.
     """
     query_text = request_body.query_text
-
-    sql_query = """
-    SELECT external_id
-    FROM (
-      SELECT DISTINCT ON (external_id) *
-      FROM (
-        (
-          SELECT 'text_match' AS source, external_id
-          FROM products
-          WHERE name ILIKE :query_text_pattern
-          LIMIT 100
-        )
-        UNION ALL
-        (
-          SELECT 'embedding_match' AS source, external_id
-          FROM products
-          ORDER BY abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
-          LIMIT 100
-        )
-      ) combined
-      ORDER BY external_id, source DESC -- IMPORTANT: This prioritizes 'text_match' for deduplication
-    ) deduped
-    ORDER BY source DESC; -- This orders the final output by source (text_match first)
-    """
-
+    filter_items = request_body.filter_items
+    
+    join_clauses = []
+    where_clauses = []
+    params: Dict[str, any] = {
+        "query_text_pattern": f"%{query_text}%",
+        "query_text_embedding": query_text
+    }
+    
+    # Process filter items to build dynamic clauses
+    if filter_items:
+        for item in filter_items:
+            field_map = {
+                "category_id": ("categories", "category_ids"),
+                "manufacturer_id": ("manufacturers", "manufacturer_ids"),
+                "brand_id": ("brands", "brand_ids")
+            }
+            if item.field in field_map and item.values:
+                table_name, param_name = field_map[item.field]
+                join_clauses.append(f"INNER JOIN {table_name} ON products.{item.field} = {table_name}.id")
+                where_clauses.append(f"{table_name}.external_id = ANY(:{param_name})")
+                params[param_name] = item.values
+            # Note: No 'else' block for other fields to prevent unexpected behavior.
+    
+    join_string = " ".join(join_clauses)
+    where_string = " AND ".join(where_clauses)
+    
+    if where_string:
+        where_string = " AND " + where_string
+    
+    # Use f-string to insert the dynamically built clauses
+    sql_query = text(f"""
+        SELECT external_id
+        FROM (
+          SELECT DISTINCT ON (products.external_id) *
+          FROM (
+            (
+              SELECT 'text_match' AS source, products.external_id
+              FROM products
+              {join_string}
+              WHERE products.name ILIKE :query_text_pattern
+              {where_string}
+              LIMIT 100
+            )
+            UNION ALL
+            (
+              SELECT 'embedding_match' AS source, products.external_id
+              FROM products
+              {join_string}
+              WHERE products.abstract_embeddings IS NOT NULL
+              {where_string}
+              ORDER BY products.abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
+              LIMIT 100
+            )
+          ) combined
+          ORDER BY external_id, source DESC
+        ) deduped
+        ORDER BY source DESC;
+    """)
+    
     ids = []
     try:
         with db_pool.connect() as connection:
-            result = connection.execute(
-                text(sql_query), # Use text() for raw SQL
-                {
-                    "query_text_pattern": f"%{query_text}%",
-                    "query_text_embedding": query_text
-                }
-            )
+            result = connection.execute(sql_query, params)
             ids = [row.external_id for row in result.fetchall()]
         return SearchResponse(ids=ids)
     except Exception as e:
         print(f"Database query error in search_products: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve IDs: {str(e)}")
 
-@app.post("/products/generate-embeddings", response_model=GenerateEmbeddingsResponse, status_code=status.HTTP_202_ACCEPTED)
-async def trigger_embedding_generation(
-    background_tasks: BackgroundTasks
-):
+@app.post("/products/generate-embeddings", response_model=GenerateEmbeddingsResponse, status_code=status.HTTP_200_OK)
+async def trigger_embedding_generation():
     """
-    Triggers the generation of embeddings for product names in the background.
-    This endpoint returns immediately with a 202 Accepted status.
+    Triggers the generation of embeddings for product names in the foreground.
+    This endpoint will block until the generation is complete.
     """
-    # The batch size for the SQL update
-    BATCH_SIZE = 1600 # Your requested limit
+    BATCH_SIZE = 1
 
-    # Add the synchronous function to FastAPI's background tasks
-    # FastAPI will run this function in a separate thread,
-    # preventing the main event loop from blocking.
-    background_tasks.add_task(generate_embeddings_sync, batch_size)
-
-    return {"message": f"Embedding generation started in the background with batch size {BATCH_SIZE}. Check service logs for progress."}
-
+    try:
+        total_embedded = generate_embeddings_sync(BATCH_SIZE)
+        return {"message": f"Embedding generation completed. Total products embedded: {total_embedded}", "total_products_embedded": total_embedded}
+    except Exception as e:
+        print(f"Error triggering embedding generation: {e}")
+        raise HTTPException(status_code=500, detail=f"Embedding generation failed: {str(e)}")
 
 # This block is for local development only.
-# Cloud Run will use gunicorn/uvicorn to run the app.
 if __name__ == "__main__":
     import uvicorn
-    # Use the PORT environment variable provided by Cloud Run
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
-# --- Cleanup for Cloud Run instance shutdown ---
 @app.on_event("shutdown")
-def shutdown_event():
+async def shutdown_event():
     """Closes the Cloud SQL Connector when the application shuts down."""
     print("Shutting down: Closing Cloud SQL Connector...")
     connector.close()
