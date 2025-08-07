@@ -171,7 +171,7 @@ async def search_products(request_body: SearchRequest):
     
     # Use f-string to insert the dynamically built clauses
     sql_query = text(f"""
-        SELECT products.external_id
+        SELECT external_id
         FROM (
           SELECT DISTINCT ON (products.external_id) *
           FROM (
@@ -194,7 +194,7 @@ async def search_products(request_body: SearchRequest):
               LIMIT 100
             )
           ) combined
-          ORDER BY products.external_id, source DESC
+          ORDER BY external_id, source DESC
         ) deduped
         ORDER BY source DESC;
     """)
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 @app.on_event("shutdown")
-def shutdown_event():
+async def shutdown_event():
     """Closes the Cloud SQL Connector when the application shuts down."""
     print("Shutting down: Closing Cloud SQL Connector...")
     connector.close()
