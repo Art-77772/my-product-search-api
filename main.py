@@ -188,7 +188,7 @@ async def search_products(request_body: SearchRequest):
               SELECT 'embedding_match' AS source, products.external_id
               FROM products
               {join_string}
-              WHERE products.abstract_embeddings IS NOT NULL AND abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector <= 0.3
+              WHERE products.abstract_embeddings IS NOT NULL AND abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector <= 0.5
               {where_string}
               ORDER BY products.abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
               LIMIT 100
