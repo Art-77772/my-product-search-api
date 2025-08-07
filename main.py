@@ -194,7 +194,6 @@ async def search_products(request_body: SearchRequest):
               LIMIT 100
             )
           ) combined
-          ORDER BY external_id, source DESC
         ) deduped
         ORDER BY source DESC;
     """)
