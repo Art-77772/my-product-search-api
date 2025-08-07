@@ -173,7 +173,7 @@ async def search_products(request_body: SearchRequest):
     sql_query = text(f"""
         SELECT external_id
         FROM (
-          SELECT DISTINCT ON (products.external_id) *
+          SELECT DISTINCT ON (external_id) *
           FROM (
             (
               SELECT 'text_match' AS source, products.external_id
