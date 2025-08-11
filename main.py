@@ -176,7 +176,9 @@ async def search_products(request_body: SearchRequest):
           SELECT DISTINCT ON (external_id) *
           FROM (
             (
-              SELECT 'text_match' AS source, products.external_id
+              SELECT 'text_match' AS source, products.external_id,
+        0 AS sort_priority, 
+        NULL AS embedding_distance
               FROM products
               {join_string}
               WHERE products.name ILIKE :query_text_pattern
@@ -185,7 +187,9 @@ async def search_products(request_body: SearchRequest):
             )
             UNION ALL
             (
-              SELECT 'embedding_match' AS source, products.external_id
+              SELECT 'embedding_match' AS source, products.external_id,
+        1 AS sort_priority, 
+        abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector AS embedding_distance
               FROM products
               {join_string}
               WHERE products.abstract_embeddings IS NOT NULL AND abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector <= 0.5
@@ -194,8 +198,9 @@ async def search_products(request_body: SearchRequest):
               LIMIT 100
             )
           ) combined
+        ORDER BY external_id, source DESC
         ) deduped
-        ORDER BY source DESC;
+        ORDER BY sort_priority ASC, embedding_distance ASC NULLS LAST;
     """)
     
     ids = []
