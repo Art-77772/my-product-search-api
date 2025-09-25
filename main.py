@@ -140,12 +140,16 @@ async def search_products(request_body: SearchRequest):
     """
     query_text = request_body.query_text
     filter_items = request_body.filter_items
+
+    # Check for short query text
+    is_short_query = len(query_text) < 5
     
     join_clauses = []
     where_clauses = []
     params: Dict[str, any] = {
         "query_text_pattern": f"%{query_text}%",
-        "query_text_embedding": query_text
+        "query_text_embedding": query_text,
+        "is_short_query": is_short_query
     }
     
     # Process filter items to build dynamic clauses
@@ -192,7 +196,7 @@ async def search_products(request_body: SearchRequest):
         abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector AS embedding_distance
               FROM products
               {join_string}
-              WHERE products.abstract_embeddings IS NOT NULL
+              WHERE products.abstract_embeddings IS NOT NULL AND :is_short_query
               {where_string}
               ORDER BY products.abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
               LIMIT 100
