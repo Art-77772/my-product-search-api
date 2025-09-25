@@ -202,7 +202,7 @@ async def search_products(request_body: SearchRequest):
               LIMIT 100
             )
           ) combined
-        WHERE embedding_distance <= 0.34 
+        WHERE embedding_distance <= 0.4 
         ORDER BY external_id, source DESC
         ) deduped
         ORDER BY sort_priority ASC, embedding_distance ASC NULLS LAST;
