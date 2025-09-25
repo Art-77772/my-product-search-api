@@ -178,7 +178,7 @@ async def search_products(request_body: SearchRequest):
             (
               SELECT 'text_match' AS source, products.external_id,
         0 AS sort_priority, 
-        NULL AS embedding_distance
+        0 AS embedding_distance
               FROM products
               {join_string}
               WHERE products.name ILIKE :query_text_pattern
@@ -192,12 +192,13 @@ async def search_products(request_body: SearchRequest):
         abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector AS embedding_distance
               FROM products
               {join_string}
-              WHERE products.abstract_embeddings IS NOT NULL AND abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector <= 0.5
+              WHERE products.abstract_embeddings IS NOT NULL
               {where_string}
               ORDER BY products.abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
               LIMIT 100
             )
           ) combined
+        WHERE embedding_distance <= 0.34 
         ORDER BY external_id, source DESC
         ) deduped
         ORDER BY sort_priority ASC, embedding_distance ASC NULLS LAST;
