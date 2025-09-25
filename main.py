@@ -196,7 +196,7 @@ async def search_products(request_body: SearchRequest):
         abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector AS embedding_distance
               FROM products
               {join_string}
-              WHERE products.abstract_embeddings IS NOT NULL AND :is_short_query
+              WHERE products.abstract_embeddings IS NOT NULL AND NOT :is_short_query
               {where_string}
               ORDER BY products.abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
               LIMIT 100
