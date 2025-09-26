@@ -184,8 +184,6 @@ async def search_products(request_body: SearchRequest):
               FROM products
               {join_string}
               WHERE products.abstract_embeddings IS NOT NULL
-              -- Apply quality filter here
-              AND (abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector) <= 0.4
               {where_string}
               ORDER BY abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
               LIMIT 100
