@@ -174,21 +174,23 @@ async def search_products(request_body: SearchRequest):
         where_string = " AND " + where_string
 
     search_embedding_string = ""
-    if is_short_query:
-    search_embedding_string = f"""
-        UNION ALL (
-          SELECT 'embedding_match' AS source,
-                 products.external_id,
-                 1 AS sort_priority,
-                 abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector AS embedding_distance
-          FROM products
-          {join_string}
-          WHERE products.abstract_embeddings IS NOT NULL
-          {where_string}
-          ORDER BY abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
-          LIMIT 100
-        )
-    """
+    if not is_short_query:
+        search_embedding_string = f"""
+            UNION ALL (
+              SELECT 'embedding_match' AS source,
+                     products.external_id,
+                     1 AS sort_priority,
+                     abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector AS embedding_distance
+              FROM products
+              {join_string}
+              WHERE products.abstract_embeddings IS NOT NULL
+              -- Apply quality filter here
+              AND (abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector) <= 0.4
+              {where_string}
+              ORDER BY abstract_embeddings <=> embedding('gemini-embedding-001', :query_text_embedding)::vector
+              LIMIT 100
+            )
+        """
     
     # Use f-string to insert the dynamically built clauses
     sql_query = text(f"""
